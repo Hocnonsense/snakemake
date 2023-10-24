@@ -2,7 +2,7 @@ channels:
   - conda-forge
   - bioconda
 dependencies:
-  - python >=3.7
+  - python >=3.11
   - yte
   - packaging
   - stopit
@@ -61,3 +61,4 @@ dependencies:
   - apptainer
   - squashfuse # for apptainer
   - immutables
+  - conda
