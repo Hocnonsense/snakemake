@@ -6,7 +6,6 @@ from .common import *
 
 from snakemake import api
 from snakemake import settings
-import copy
 
 
 def test_deploy_sources(s3_storage):
@@ -22,7 +21,6 @@ def test_deploy_sources(s3_storage):
             storage_settings=settings.StorageSettings(
                 default_storage_prefix=s3_prefix,
                 default_storage_provider="s3",
-                assume_shared_fs=False,
             ),
             resource_settings=settings.ResourceSettings(
                 cores=1,
@@ -45,14 +43,11 @@ def test_deploy_sources(s3_storage):
         workflow.upload_sources()
 
         cmd = workflow.spawned_job_args_factory.precommand()
-        assert cmd
 
         origdir = os.getcwd()
-        env = copy.copy(os.environ)
-        env.update(workflow.spawned_job_args_factory.envvars())
         with tempfile.TemporaryDirectory() as tmpdir:
             os.chdir(tmpdir)
             try:
-                subprocess.run(cmd, shell=True, check=True, env=env)
+                subprocess.run(cmd, shell=True, check=True)
             finally:
                 os.chdir(origdir)

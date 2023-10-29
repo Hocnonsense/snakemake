@@ -42,7 +42,7 @@ from snakemake.exceptions import (
 common_settings = CommonSettings(
     non_local_exec=False,
     implies_no_shared_fs=False,
-    pass_envvar_declarations_to_cmd=True,
+    pass_envvar_declarations_to_cmd=False,
     auto_deploy_default_storage_provider=False,
 )
 
@@ -80,6 +80,9 @@ class Executor(RealExecutor):
 
     def get_python_executable(self):
         return sys.executable
+
+    def get_envvar_declarations(self):
+        return ""
 
     def additional_general_args(self):
         return "--quiet progress rules"
@@ -222,7 +225,6 @@ class Executor(RealExecutor):
 
     def spawn_job(self, job: SingleJobExecutorInterface):
         cmd = self.format_job_exec(job)
-        logger.debug(f"spawned job: {cmd}")
 
         try:
             subprocess.check_call(cmd, shell=True)
