@@ -1350,6 +1350,10 @@ def test_checkpoints_dir():
     run(dpath("test_checkpoints_dir"))
 
 
+def test_checkpoints_many():
+    run(dpath("test_checkpoints_many"))
+
+
 def test_issue1092():
     run(dpath("test_issue1092"))
 
