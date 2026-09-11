@@ -23,7 +23,7 @@ However, rules can be much more complex, may use :ref:`plain python <snakefiles-
 
 Inside the shell command, all local and global variables, especially input and output files can be accessed via their names in the `python format minilanguage <https://docs.python.org/py3k/library/string.html#formatspec>`_.
 Here, input and output (and in general any list or tuple) automatically evaluate to a space-separated list of files (i.e. ``path/to/inputfile path/to/other/inputfile``).
-From Snakemake 3.8.0 on, adding the special formatting instruction ``:q`` (e.g. ``"somecommand {input:q} {output:q}")``) will let Snakemake quote each of the list or tuple elements that contains whitespace.
+From Snakemake 3.8.0 on, adding the special formatting instruction ``:q`` (e.g. ``"somecommand {input:q} {output:q}"``) will let Snakemake quote each of the list or tuple elements that contains whitespace.
 
 .. note::
 
@@ -70,7 +70,7 @@ It is not clear whether ``dataset=101.B`` and ``group=normal`` or ``dataset=101`
 Hence wildcards can be constrained to given regular expressions.
 Here we could restrict the wildcard ``dataset`` to consist of digits only using ``\d+`` as the corresponding regular expression.
 With Snakemake 3.8.0, there are three ways to constrain wildcards.
-First, a wildcard can be constrained within the file pattern, by appending a regular expression separated by a comma 
+First, a wildcard can be constrained within the file pattern, by appending a regular expression separated by a comma
 (you might want to use the `r` prefix for a raw string to avoid having to escape backslashes, particularly for more complex regular expressions):
 
 .. code-block:: python
@@ -214,7 +214,7 @@ These restrictions do not apply when using ``unpack()``.
 Helpers for defining rules
 --------------------------
 
-Snakemake provides a number of helpers that can be used to define rules and drastically simplify over using 
+Snakemake provides a number of helpers that can be used to define rules and drastically simplify over using
 :ref:`input functions <snakefiles-input_functions>` or :ref:`plain python expressions <snakefiles_aggregation>`.
 Below, we will first start with describing two basic helper functions for specifying aggregations and multiple output files.
 Afterwards, we will further show a set of semantic helper functions should increase readability and simplify code (see :ref:`snakefiles-semantic-helpers`).
@@ -308,6 +308,116 @@ The multiext function
 
 The effect is the same as if you would write ``expand("some/plot{ext}", ext=[".pdf", ".svg", ".png"])``, however, using a simpler syntax.
 Moreover, defining output with ``multiext`` is the only way to use :ref:`between workflow caching <caching>` for rules with multiple output files.
+It's also possible to get named input/output files in the following way:
+
+.. code-block:: python
+
+    rule plot:
+        input:
+            ...
+        output:
+            multiext("some/plot", out1=".pdf", out2=".svg")
+            "some_other_output"
+            named_output="another_output"
+        shell:
+            """
+            somecommand > {output.out1}
+            othercommand > {output.out2}
+            anothercommand > {output[2]}
+            finalcommand > {output.named_output}
+            """
+
+Do note that all the multiext extensions should be named, or all of them should be unnamed (not both).
+Additionally, if additional input/output statements are given, multiext should be treated as positional arguments (before other named input/output files).
+
+.. _snakefiles-pathvars:
+
+Path variables
+~~~~~~~~~~~~~~
+
+Certain components in input and output file paths tend to reoccur across many rules.
+Via so-called **pathvars**, Snakemake allows to define such components globally, make them configurable via the config file, and change them per module or even per rule.
+Apart from saving boilerplate code, pathvars can be used to make modules intended for reuse in multiple contexts more flexible.
+Pathvars can be used as generic placeholders for their actual values inside of input, output, log, and benchmark paths, using angle brackets, e.g. ``<results>``.
+They behave similarly to `Python string interpolation <https://docs.python.org/3/tutorial/inputoutput.html#formatted-string-literals>`__ but only allow predefined placeholders, with precedence and configuration handled by Snakemake.
+
+Pathvar usage
+"""""""""""""
+
+An example rule using pathvars is the following:
+
+.. code-block:: python
+
+    rule somerule:
+        input:
+            "<results>/something/{sample}.txt"
+        output:
+            "<results>/processed/{sample}.txt"
+        shell:
+            "somecommand {input} {output}"
+
+Pathvars are resolved when the rule is parsed (before wildcard resolution and DAG construction).
+The values of pathvars can thereby even contain wildcards themselves.
+
+Pathvar defaults
+""""""""""""""""
+
+By default, Snakemake offers the pathvars ``results``, ``stats``, ``reports``, ``temp``, ``resources``, ``logs``, ``benchmarks``.
+Each of them is set to its respective name (i.e. the output file ``"<results>/processed/{sample}.txt"`` will be interpreted as ``"results/processed/{sample}.txt"``).
+
+Pathvar definition
+""""""""""""""""""
+
+Beyond the defaults, it is possible to define additional pathvars or customize the default definitions.
+This can happen in multiple ways, with the following precedence (from highest to lowest):
+
+1. For individual rules, via the ``pathvars`` keyword.
+2. For :ref:`module <snakefiles-modules>` config via the ``pathvars`` key in a config dict explicitly passed to the module (this applies recursively to nested modules).
+3. For :ref:`modules <snakefiles-modules>`, via the ``pathvars`` keyword to the ``module`` directive (this applies recursively to nested modules).
+4. Globally, via the ``pathvars`` key in the config file or passed to the ``--config`` command line arguments.
+5. Globally, via the ``pathvars`` keyword at the top level of the Snakefile.
+
+Thereby, if two definitions share the same precedence, the last one wins.
+
+Apart from :ref:`module pathvars <snakefiles-modules-pathvars>`, the most common way is to define them globally via the ``pathvars`` keyword:
+
+.. code-block:: python
+
+    pathvars:
+        per="{sample}"
+
+Above, we define a pathvar ``per`` and set it to the value ``{sample}``, thus defining a wildcard.
+Such a pattern can be helpful if you write a workflow that shall be reused as a module in various different ways within other workflows (e.g. thereby processing different items, samples, or something else).
+
+In order to overwrite pathvars for individual rules, they can be specified via the ``pathvars`` keyword inside a rule:
+
+.. code-block:: python
+
+    rule somerule:
+        input:
+            "<results>/something/<per>.txt"
+        output:
+            "<results>/processed/<per>.txt"
+        pathvars:
+            results="custom-folder"
+        shell:
+            "somecommand {input} {output}"
+
+This way, the pathvar ``<results>`` in the input and output path would be replaced with ``custom-folder`` just for this rule.
+Per rule pathvar definition can also happen in combination with :ref:`rule inheritance <snakefiles-rule-inheritance>`.
+This allows to quickly write and reuse rules with generic input or output files.
+
+Finally, it is possible overwrite pathvars via the workflow configuration (configfile or ``--config``).
+For this purpose, it is possible to define a key ``pathvars`` in the config, with a mapping between pathvars and their values below, e.g.
+
+.. code-block:: yaml
+
+    pathvars:
+        results: example-folder
+
+Note that defining pathvars in the config should be considered a rare, discouraged, and advanced use case, since the user must know the workflow's internal pathvar expectations.
+Workflow authors can explicitly forbid the modification of particular pathvars via :ref:`config file schemas and validation <snakefiles_config_validation>`.
+
 
 .. _snakefiles-semantic-helpers:
 
@@ -325,14 +435,14 @@ The lookup function
 
 The ``lookup`` function can be used to look up a value in a python mapping (e.g. a ``dict``) or a `pandas dataframe or series <https://pandas.pydata.org>`_.
 It is especially useful for looking up information based on wildcard values.
-The ``lookup`` function has the signature 
+The ``lookup`` function has the signature
 
 .. code-block:: python
 
     lookup(
-        dpath: Optional[str | Callable] = None, 
-        query: Optional[str | Callable] = None, 
-        cols: Optional[List[str]] = None, 
+        query: Optional[str | Callable] = None,
+        dpath: Optional[str | Callable] = None,
+        cols: Optional[List[str]] = None,
         is_nrows: Optional[int],
         within=None,
         default=NODEFAULT
@@ -340,6 +450,8 @@ The ``lookup`` function has the signature
 
 The required ``within`` parameter takes either a python mapping, a pandas dataframe, or a pandas series.
 For the former case, it expects the ``dpath`` argument, for the latter two cases, it expects the ``query`` argument to be given.
+From Snakemake 9.25 on, alternatively, you can simply provide any of the two as the first positional argument.
+The matching argument will be chosen via the type of the ``within`` parameter.
 
 In case of a pandas dataframe,
 the query parameter is passed to `DataFrame.query() <https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.query.html>`_.
@@ -348,8 +460,8 @@ named tuples with the column names as attributes.
 If the query results in a single row, the result is returned as a single
 named tuple with the column names as attributes.
 If the query or dpath parameter is given a function, the function will be evaluated with wildcards passed as the first argument.
-In case of dpath, if the dpath is not found, a ``LookupError`` is raised, unless a
-default fallback value is provided via the ``default`` argument (this argument is ignored in case of ``query``).
+If the dpath is not found or the query returns no matching rows, the ``default`` fallback
+value is returned if provided. Otherwise, a ``LookupError`` is raised (for dpath) or an empty list is returned (for query).
 Note: ``None`` is also a valid default value.
 
 In both cases (``dpath`` and ``query``), the result can be used by the ``expand`` or ``collect`` function,
@@ -357,7 +469,7 @@ e.g.
 
 .. code-block:: python
 
-    collect("results/{item.sample}.txt", sample=lookup(query="someval > 2", within=samples))
+    collect("results/{item.sample}.txt", item=lookup("someval > 2", within=samples))
 
 Here, we take the file ``"results/{item.sample}.txt"`` with ``{item.sample}`` being replaced by the
 sample names that occur in all rows of the dataframe ``samples`` where the value of the ``someval`` column is greater than 2.
@@ -368,26 +480,26 @@ for the :ref:`branch function <snakefiles-branch-function>`, e.g.
 
 .. code-block:: python
 
-    branch(lookup(query="sample == '{sample}' & someval > 2", within=samples), then="foo", otherwise="bar")
+    branch(lookup("sample == '{sample}' & someval > 2", within=samples), then="foo", otherwise="bar")
 
 In case your dataframe has an index, you can also access the index within the
 query, e.g. for faster, constant time lookups:
 
 .. code-block:: python
 
-    lookup(query="index.loc[{sample}]", within=samples)
+    lookup("index.loc[{sample}]", within=samples)
 
 Further, it is possible to constrain the output to a list of columns, e.g.
 
 .. code-block:: python
 
-    lookup(query="sample == '{sample}'", within=samples, cols=["somecolumn"])
+    lookup("sample == '{sample}'", within=samples, cols=["somecolumn"])
 
 or to a single column, e.g.
 
 .. code-block:: python
 
-    lookup(query="sample == '{sample}'", within=samples, cols="somecolumn")
+    lookup("sample == '{sample}'", within=samples, cols="somecolumn")
 
 In the latter case, just a list of items in that column is returned (e.g. ``["a", "b", "c"]``).
 
@@ -396,7 +508,7 @@ If it is used, lookup just returns a boolean value indicating whether the number
 
 .. code-block:: python
 
-    lookup(query="sample == '{sample}'", within=samples, is_nrows=5)
+    lookup("sample == '{sample}'", within=samples, is_nrows=5)
 
 In case of a **pandas series**, the series is converted into a dataframe via
 Series.to_frame() and the same logic as for a dataframe is applied.
@@ -415,7 +527,7 @@ to auxiliary namespace arguments given to the lookup function, e.g.
 .. code-block:: python
 
     lookup(
-        query="cell_type == '{sample.cell_type}'",
+        "cell_type == '{sample.cell_type}'",
         within=samples,
         sample=lookup("sample == '{sample}'", within=samples)
     )
@@ -459,7 +571,7 @@ An example of using ``branch`` in combination with ``lookup`` from a ``config`` 
 .. code-block:: python
 
     branch(
-        lookup(dpath="tools/sometool", within=config),
+        lookup("tools/sometool", within=config),
         then="results/sometool/{dataset}.txt",
         otherwise="results/someresult/{dataset}.txt"
     )
@@ -492,11 +604,25 @@ An example for using the cases argument could look as follows:
 .. code-block:: python
 
     branch(
-        lookup(dpath="tool/to/use", within=config),
+        lookup("tool/to/use", within=config),
         cases={
             "sometool": "results/sometool/{dataset}.txt",
             "someothertool": "results/someothertool/{dataset}.txt"
         }
+    )
+
+Above, if the value given as condition is not found in the cases mapping, a KeyError is raised.
+To avoid that, one can provide ``otherwise`` as a fallback value, e.g.
+
+.. code-block:: python
+
+    branch(
+        lookup("tool/to/use", within=config),
+        cases={
+            "sometool": "results/sometool/{dataset}.txt",
+            "someothertool": "results/someothertool/{dataset}.txt"
+        },
+        otherwise="results/someresult/{dataset}.txt"
     )
 
 The evaluate function
@@ -547,6 +673,83 @@ It can for example be used to condition some behavior in the workflow on the exi
         shell:
             "cp {input} {output}"
 
+.. _snakefiles-semantic-helpers-parse-input:
+
+The parse_input function
+""""""""""""""""""""""""
+
+The ``parse_input`` function allows to parse an input file and return a value.
+It has the signature ``parse_input(input_item, parser, kwargs)``, with ``input_item`` being the key of an input file, ``parser`` being a callable to extract the desired information, and ``kwargs`` extra arguments passed to the parser.
+The function will return the extracted value and this can, for example, be used as a parameter.
+
+.. code-block:: python
+
+    rule a:
+	input:
+	    samples="samples.tsv",
+        output:
+            "samples.id",
+        params:
+            id=parse_input(input.samples, parser=extract_id)
+        shell:
+            "echo {params.id} > {output}"
+
+
+.. _snakefiles-semantic-helpers-extract-checksum:
+
+The extract_checksum function
+"""""""""""""""""""""""""""""
+
+The ``extract_checksum`` function parses an input file and returns the checksum of the given file.
+It has the signature ``extract_checksum(infile, file)``, with ``infile`` being the input file, and ``file`` the filename to search for.
+The function will return the checksum of ``file`` present in ``infile``.
+
+.. code-block:: python
+
+    rule a:
+	input:
+	    checksum="samples.md5",
+        output:
+            tsv="{a}.tsv",
+        params:
+            checksum=parse_input(input.checksum, parser=extract_checksum, file=output.tsv)
+        shell:
+            "echo {params.checksum} > {output}"
+
+.. _snakefiles-semantic-helpers-prepend-param:
+
+The prepend_param function
+""""""""""""""""""""""""""
+
+The ``prepend_param`` function takes one or more input files
+and prepends a string to each.
+This allows easier use of tools that require
+adding a flag before each filename they are given.
+For example:
+
+.. code-block:: python
+
+    params:
+        data=prepend_param("--input", input.data)
+    input:
+        data=["a.txt", "b.txt", "c.txt"],
+    shell:
+        "somecommand {params.data}"
+
+will run the command ``somecommand --input a.txt --input b.txt --input c.txt``.
+
+If spaces are not required between the prefix and the filename,
+set the ``space`` keyword argument to ``False``:
+
+.. code-block:: python
+
+    params:
+        data=prepend_param("-i", input.data, space=False)
+    input:
+        data=["a.txt", "b.txt", "c.txt"],
+    shell:
+        "somecommand {params.data}"  # Runs somecommand -ia.txt -ib.txt -ic.txt
+
 
 .. _snakefiles-rule-item-access:
 
@@ -589,15 +792,27 @@ Sub-path access
 
 In some cases, it is useful to access a sub-path of an input or output file or directory.
 For this purpose, Snakemake provides the ``subpath`` function.
-It has the signature ``subpath(path_or_func, strip_suffix=None, basename=False, parent=False, ancestor=None)``.
+It has the signature ``subpath(path_or_func, strip_suffix=None, with_suffix=None, basename=False, parent=False, ancestor=None)``.
 If a path is given as first argument (of type ``str`` or ``pathlib.Path``), the function directly returns the sub-path of the given path.
 Thereby, the sub-path is determined depending on the other arguments.
 
-If a ``str`` is given to ``strip_suffix``, this suffix is stripped from the path before determining the sub-path (a ``ValueError`` error is thrown if the path does not have the suffix).
+If a ``str`` is given to ``strip_suffix``, this suffix is stripped from the path (a ``ValueError`` is thrown if the path does not have the suffix).
 
 .. code-block:: python
 
     subpath("results/test.txt", strip_suffix=".txt") # returns "results/test"
+
+If a ``str`` is given to ``with_suffix``, this suffix is added to the path.
+
+.. code-block:: python
+
+    subpath("results/test.txt", with_suffix=".gz") # returns "results/test.txt.gz"
+
+The two arguments ``strip_suffix`` and ``with_suffix`` can be used in combination, e.g.
+
+.. code-block:: python
+
+    subpath("results/test.txt", strip_suffix=".txt", with_suffix=".csv") # returns "results/test.csv"
 
 If ``basename`` is set to ``True``, the basename of the path is returned (e.g. ``test.txt`` in case the path is ``results/test.txt``).
 
@@ -634,10 +849,98 @@ The ``subpath`` function can be very handy in combination with :ref:`Snakemake's
         shell:
             "somecommand {input} --name {params.basename} --outdir {params.outdir}"
 
+.. _snakefiles-flatten:
+
+The flatten function
+""""""""""""""""""""
+When selecting input files, sometimes you might end up with an irregular list of lists. To flatten in, you can use:
+
+.. code-block:: python
+
+    flatten([1, "a", [2,"b"], ["c","d",["e", 3]]]) # returns ["1", "a", "2", "b", "c", "d", "e", "3"]
+
+.. _snakefiles-choose-f:
+
+The choose_f(ile/older) functions
+"""""""""""""""""""""""""""""""""
+In some case you might need to choose a valid file/folder from a given list at execution time. For that you can use the ``choose_f`` family of functions. Their arguments are very similar:
+
+- ``(file/folder/tmp)_list``: list of paths (files or folders) to choose from (``List[Union[Path, AnnotatedString, str]]``)
+- ``read``: whether the the input paths have to be readable (``bool``)
+- ``write``: whether the the input paths have to be writeable (``bool``)
+- ``execute/open``: whether the the input paths have to be executable/openable (``bool``)
+- ``creatable``: whether the the input paths have to be creatable (``bool``)
+
+Conditions are `booleans` and they all have to be met; if you want to ignore one condition set it to ``None``. For example, choosing a file where the user has read/write access (but it does not matter if the user can execute or create it):
+
+.. code-block:: python
+
+    choose_file(["foo", "~/.bashrc"], read=True, write=True, execute=None, creatable=None)  # "~/.bashrc"
+
+The same logic applies for choosing a folder where the user has read/write/open access (but it does not matter if the user can create it):
+
+.. code-block:: python
+
+    choose_folder(["foo/bar", "/proc", "~"], read=True, write=True, open=True, creatable=None)  # "~"
+
+:ref:`temp folders <snakefiles-dynamic-resources_tmpdir>`:
+
+There is also a specific function for temporary folders, where the system temporary folder is returned if none is valid:
+
+.. code-block:: python
+
+    choose_tmp(["foo/bar", "/tmp"], read=True, write=True, open=True, creatable=True)  # "foo/bar"
+    choose_tmp(["/foo/bar", "/tmp", "/tmp/jobid"], read=True, write=True, open=True, creatable=None)  # "/tmp"
+    choose_tmp(["/foo/bar", "/tmp/$USER", "/tmp/"], read=True, write=True, open=True, creatable=True  # "/tmp/$USER"
+    choose_tmp(["/foo", "/bar"], read=True, write=True, open=True, creatable=True)  # "system_tmpdir"
+
+.. _snakefiles-python-module:
+
+as_py_module
+""""""""""""
+When running a Python script under active development,
+which relies on relative imports
+you may want to have the script as an input file,
+but call it by its module name.
+The ``as_py_module`` function will
+translate a given script filename
+into a module name that may be used with ``python -m``.
+For example,
+
+.. code-block:: python
+
+    rule:
+        params:
+            module=as_py_module(),
+        input:
+            script="some_package/some_subpackage/some_module.py",
+        output:
+            "..."
+        shell:
+            "python -m {params.module} --output_file {output}"
+
+The helper by default looks at ``input.script``.
+Other values may be used by using
+:ref:`Snakemake's rule item access helpers <snakefiles-rule-item-access>`,
+e.g.
+
+.. code-block:: python
+
+    rule:
+        params:
+            module=as_py_module(input.my_script),
+        input:
+            my_script="some_package/some_subpackage/some_module.py",
+        output:
+            "..."
+        shell:
+            "python -m {params.module} --output_file {output}"
+
+
 .. _snakefiles-targets:
 
 Target rules
--------------
+------------
 
 By default, Snakemake always wants to execute the first rule in the snakefile.
 This gives rise to pseudo-rules at the beginning of the file that can be used to define build-targets similar to GNU Make:
@@ -766,8 +1069,8 @@ Snakemake will always round the calculated value down (while enforcing a minimum
 
 Starting from version 3.7, threads can also be a callable that returns an ``int`` value. The signature of the callable should be ``callable(wildcards[, input])`` (input is an optional parameter).  It is also possible to refer to a predefined variable (e.g, ``threads: threads_max``) so that the number of cores for a set of rules can be changed with one change only by altering the value of the variable ``threads_max``.
 
-Both threads can be defined (or overwritten) upon invocation (without modifying the workflow code) via `--set-threads` see :ref:`all_options` and via workflow profiles, see :ref:`profiles`.
-To quickly exemplify the latter, you could provide the following workflow profile in a file ``profiles/default/config.yaml`` relative to the Snakefile or the current working directory:
+Both threads can be defined (or overwritten) upon invocation (without modifying the workflow code) via `--set-threads` see :ref:`all_options` and via workflow profiles, see :ref:`executing-profiles`.
+To quickly exemplify the latter, you could provide the following workflow profile in a file ``profiles/default/profile.yaml`` relative to the Snakefile or the current working directory:
 
 .. code-block:: yaml
 
@@ -813,6 +1116,59 @@ If no limits are given, the resources are ignored in local execution.
 
 Resources can have any arbitrary name, and must be assigned ``int`` or ``str`` values.
 In case of ``None``, the resource is considered to be unset (i.e. ignored) in the rule.
+
+.. _snakefiles-standard-resources:
+
+Standard Resources
+~~~~~~~~~~~~~~~~~~
+
+There are several **standard resources**, for total memory, disk usage, runtime, and the temporary directory of a job: ``mem``, ``disk``, ``runtime``, and ``tmpdir``.
+All of these resources have specific meanings understood by snakemake and are treated in varying unique ways:
+
+* The ``tmpdir`` resource automatically leads to setting the ``$TMPDIR`` variable for shell commands, scripts, wrappers and notebooks. In cluster or cloud setups, its evaluation is delayed until the actual execution of the job. This way, it can dynamically react on the context of the node of execution.
+
+* The ``runtime`` resource indicates the amount of wall clock time a job needs to run.
+  It can be given as string defining a time span or as integer defining **minutes**.
+  In the former case, the time span can be defined as a string with a number followed by a unit
+  (``ms``, ``s``, ``m``, ``h``, ``d``, ``w``, ``y`` for seconds, minutes, hours, days, and years, respectively).
+  The interpretation happens via the `humanfriendly package <https://humanfriendly.readthedocs.io/en/latest/api.html?highlight=parse_timespan#humanfriendly.parse_timespan>`__.
+  Cluster or cloud backends may use this to constrain the allowed execution time of the submitted job.
+  See :ref:`the section below <resources-remote-execution>` for more information.
+
+* ``disk`` and ``mem`` define the amount of memory and disk space needed by the job.
+  They are given as strings with a number followed by a unit (``B``, ``KB``, ``MB``, ``GB``, ``TB``, ``PB``, ``KiB``, ``MiB``, ``GiB``, ``TiB``, ``PiB``).
+  The interpretation of the definition happens via the `humanfriendly package <https://humanfriendly.readthedocs.io/en/latest/api.html?highlight=parse_timespan#humanfriendly.parse_size>`__.
+  Alternatively, the two can be directly defined as integers via the resources ``mem_mb`` and ``disk_mb`` (to which ``disk`` and ``mem`` are also automatically translated internally).
+  They are both locally scoped by default, a fact important for cluster and compute execution.
+  :ref:`See below <resources-remote-execution>` for more info.
+  They are usually passed to execution backends, e.g. to allow the selection of appropriate compute nodes for the job execution.
+
+* ``gpu``, ``gpu_manufacturer``, and ``gpu_model`` define the number of GPUs, the manufacturer of the GPUs, and the gpu model needed by the job.
+  The ``gpu`` resource is an integer and the other two are strings. Please check the executor plugin docs in order to see
+  whether and how these resources are supported and properly interpreted by the executor.
+  For example, the `kubernetes executor plugin <https://snakemake.github.io/snakemake-plugin-catalog/plugins/executor/kubernetes.html>`__ accepts the terms ``nvidia`` or ``amd`` for the ``gpu_manufacturer`` resource.
+
+Because of these special meanings, the above names should always be used instead of possible synonyms (e.g. ``tmp``, ``time``, ``temp``, etc).
+
+.. _default-resources:
+
+Default Resources
+~~~~~~~~~~~~~~~~~
+
+Since it could be cumbersome to define these standard resources for every rule, you can set default values via the command line flag ``--default-resources`` or in a :ref:`profile <profiles>`.
+As with ``--set-resources``, this can be done dynamically, using the variables specified for the callables in the section on :ref:`snakefiles-dynamic-resources`.
+If those resource definitions are mandatory for a certain execution mode, Snakemake will fail with a hint if they are missing.
+Any resource definitions inside a rule override what has been defined with ``--default-resources``.
+If ``--default-resources`` are specified without any further arguments, Snakemake uses ``'mem_mb=min(max(2*input.size_mb, 1000), 8000)'``, ``'disk_mb=max(2*input.size_mb, 1000) if input else 50000'``, and ``'tmpdir=system_tmpdir'``.
+
+* The ``tmpdir`` value points to whatever is the default of the operating system or specified by any of the environment variables ``$TMPDIR``, ``$TEMP``, or ``$TMP`` as outlined `here <https://docs.python.org/3/library/tempfile.html#tempfile.gettempdir>`__.
+* The rationale for the default value of ``disk_mb`` is the following: if there are input files, we assume the rule will use at most twice their size during execution.
+  If there are no input files, we cannot know what the rule will need, hence we assume a conservative default of 50GB.
+* The rationale for the default value of ``mem_mb`` is the following: we try to scale the required memory with the input file size (conservatively assuming that they are loaded entirely into memory).
+  However, we stop at 8GB, in order to avoid artificially high requests. Tools that read very large files rather tend to stream them instead of fully loading them into memory.
+* If ``--default-resources`` is specified with some definitions, but any of the above defaults (e.g. ``mem_mb``) is omitted, these are still used.
+  In order to explicitly unset these defaults, assign them a value of ``None``, e.g. ``--default-resources mem_mb=None``.
+* Of course, any rule specifying concrete resources either via the rule definition or via ``--set-resources`` will override the defaults.
 
 .. _snakefiles-dynamic-resources:
 
@@ -881,8 +1237,8 @@ Here, the value that the function ``get_mem_mb`` returns, grows linearly with th
 Of course, any other arithmetic could be performed in that function.
 
 Both threads and resources can be defined (or overwritten) upon invocation (without modifying the workflow code) via `--set-threads` and `--set-resources`, see :ref:`all_options`.
-Or they can be defined via workflow :ref:`profiles`, with the variables listed above in the signature for usable callables.
-You could, for example, provide the following workflow profile in a file ``profiles/default/config.yaml`` relative to the Snakefile or the current working directory:
+Or they can be defined via workflow :ref:`executing-profiles`, with the variables listed above in the signature for usable callables.
+You could, for example, provide the following workflow profile in a file ``profiles/default/profile.yaml`` relative to the Snakefile or the current working directory:
 
 .. code-block:: yaml
 
@@ -894,47 +1250,16 @@ You could, for example, provide the following workflow profile in a file ``profi
 
 to set the requirements for rule ``b`` to 3 threads and 1000 MB.
 
-.. _snakefiles-standard-resources:
+.. _snakefiles-dynamic-resources_tmpdir:
 
-Standard Resources
-~~~~~~~~~~~~~~~~~~
+Another case of dynamic resources, is for the `tmpdir`. Depending on the architecture of our system, you might have different servers with different "ideal" temp folders. For example, some might have small but fast ``nvme`` disks, others might have a job-specific temp folder (e.g. ``/scratch/$SLURM_JOB_ID``, while in others the only option might be the slow NFS. The function ``choose_tmp`` allows the user to specify a list of temp folders that, on each job submission, are evaluated. The first valid path is selected; if no path is valid, Snakemake's internal ``system_tmpdir`` is used. For example, one can specify the function in a profile:
 
-There are several **standard resources**, for total memory, disk usage, runtime, and the temporary directory of a job: ``mem``, ``disk``, ``runtime``, and ``tmpdir``.
-All of these resources have specific meanings understood by snakemake and are treated in varying unique ways:
+.. code-block:: yaml
 
-* The ``tmpdir`` resource automatically leads to setting the ``$TMPDIR`` variable for shell commands, scripts, wrappers and notebooks. In cluster or cloud setups, its evaluation is delayed until the actual execution of the job. This way, it can dynamically react on the context of the node of execution.
+    default_resources:
+      tmpdir: choose_tmp(["/scratch/nvme", "/home/$USER/scratch", "/scratch/$SLURM_JOB_ID"])
 
-* The ``runtime`` resource indicates the amount of wall clock time a job needs to run.
-  It can be given as string defining a time span or as integer defining **minutes**.
-  In the former case, the time span can be defined as a string with a number followed by a unit
-  (``ms``, ``s``, ``m``, ``h``, ``d``, ``w``, ``y`` for seconds, minutes, hours, days, and years, respectively).
-  The interpretation happens via the `humanfriendly package <https://humanfriendly.readthedocs.io/en/latest/api.html?highlight=parse_timespan#humanfriendly.parse_timespan>`__.
-  Cluster or cloud backends may use this to constrain the allowed execution time of the submitted job.
-  See :ref:`the section below <resources-remote-execution>` for more information.
-
-* ``disk`` and ``mem`` define the amount of memory and disk space needed by the job.
-  They are given as strings with a number followed by a unit (``B``, ``KB``, ``MB``, ``GB``, ``TB``, ``PB``, ``KiB``, ``MiB``, ``GiB``, ``TiB``, ``PiB``).
-  The interpretation of the definition happens via the `humanfriendly package <https://humanfriendly.readthedocs.io/en/latest/api.html?highlight=parse_timespan#humanfriendly.parse_size>`__.
-  Alternatively, the two can be directly defined as integers via the resources ``mem_mb`` and ``disk_mb`` (to which ``disk`` and ``mem`` are also automatically translated internally).
-  They are both locally scoped by default, a fact important for cluster and compute execution.
-  :ref:`See below <resources-remote-execution>` for more info.
-  They are usually passed to execution backends, e.g. to allow the selection of appropriate compute nodes for the job execution.
-
-Because of these special meanings, the above names should always be used instead of possible synonyms (e.g. ``tmp``, ``time``, ``temp``, etc).
-
-.. _default-resources:
-
-Default Resources
-~~~~~~~~~~~~~~~~~~
-
-Since it could be cumbersome to define these standard resources for every rule, you can set default values via the command line flag ``--default-resources`` or in a :ref:`profile <profiles>`.
-As with ``--set-resources``, this can be done dynamically, using the variables specified for the callables in the section on :ref:`snakefiles-dynamic-resources`.
-If those resource definitions are mandatory for a certain execution mode, Snakemake will fail with a hint if they are missing.
-Any resource definitions inside a rule override what has been defined with ``--default-resources``.
-If ``--default-resources`` are not specified, Snakemake uses ``'mem_mb=max(2*input.size_mb, 1000)'``, ``'disk_mb=max(2*input.size_mb, 1000)'``, and ``'tmpdir=system_tmpdir'``.
-The latter points to whatever is the default of the operating system or specified by any of the environment variables ``$TMPDIR``, ``$TEMP``, or ``$TMP`` as outlined `here <https://docs.python.org/3/library/tempfile.html#tempfile.gettempdir>`__.
-If ``--default-resources`` is specified with some definitions, but any of the above defaults (e.g. ``mem_mb``) is omitted, these are still used.
-In order to explicitly unset these defaults, assign them a value of ``None``, e.g. ``--default-resources mem_mb=None``.
+and each job, depending on the hardware specification of each node, will select the first valid path.
 
 .. _resources-remote-execution:
 
@@ -955,16 +1280,16 @@ Modification in the Snakefile uses the following syntax:
 .. code-block:: python
 
     resource_scopes:
-        gpus="local",
+        gpu="local",
         foo="local",
         disk_mb="global"
 
-Here, we set both ``gpus`` and ``foo`` as local resources, and we changed ``disk_mb`` from its default to be a ``global`` resource.
+Here, we set both ``gpu`` and ``foo`` as local resources, and we changed ``disk_mb`` from its default to be a ``global`` resource.
 These options could be overridden at the command line using:
 
 .. code-block:: console
 
-    $ snakemake --set-resource-scopes gpus=global disk_mb=local
+    $ snakemake --set-resource-scopes gpu=global disk_mb=local
 
 Resources and Group Jobs
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1013,28 +1338,6 @@ option is to not use preemptible instances by default, but only for a particular
 Note that this is currently implemented for the Google Life Sciences API.
 
 
-GPU Resources
-~~~~~~~~~~~~~
-
-The Google Life Sciences API currently has support for
-`NVIDIA GPUs <https://cloud.google.com/compute/docs/gpus#restrictions>`_, meaning that you can request a number of NVIDIA GPUs explicitly by adding ``nvidia_gpu`` or ``gpu`` to your Snakefile resources for a step:
-
-
-.. code-block:: python
-
-    rule a:
-        output:
-            "test.txt"
-        resources:
-            nvidia_gpu=1
-        shell:
-            "somecommand ..."
-
-
-A specific `gpu model <https://cloud.google.com/compute/docs/gpus#introduction>`_ can be requested using ``gpu_model`` and lowercase identifiers like ``nvidia-tesla-p100`` or ``nvidia-tesla-p4``, for example: ``gpu_model="nvidia-tesla-p100"``. If you don't specify ``gpu`` or ``nvidia_gpu`` with a count, but you do specify a ``gpu_model``, the count will default to 1.
-
-
-
 Messages
 --------
 
@@ -1055,7 +1358,7 @@ Note that access to wildcards is also possible via the variable ``wildcards`` (e
 Priorities
 ----------
 
-Snakemake allows for rules that specify numeric priorities:
+Snakemake allows for rules that specify numeric and/or callable priorities:
 
 
 .. code-block:: python
@@ -1067,6 +1370,21 @@ Snakemake allows for rules that specify numeric priorities:
       shell: ...
 
 Per default, each rule has a priority of 0. Any rule that specifies a higher priority, will be preferred by the scheduler over all rules that are ready to execute at the same time without having at least the same priority.
+
+Priority may also be specified with a callable. The callable receives ``wildcards``
+as its first positional argument, and may optionally accept ``input``, ``attempt``,
+and ``rulename`` keyword arguments (similar to param functions). It has to return the priority as an integer or float (will be rounded):
+
+.. code-block:: python
+
+    rule sort:
+        input: "{dataset}.txt"
+        output: "{dataset}.sorted"
+        priority: lambda wildcards, input: input.size_mb
+        shell: "sort {input} > {output}"
+
+This allows the scheduler to dynamically prioritise jobs based on, e.g., input
+file size so that larger jobs start first.
 
 Furthermore, the ``--prioritize`` or ``-P`` command line flag allows to specify files (or rules) that shall be created with highest priority during the workflow execution. This means that the scheduler will assign the specified target and all its dependencies highest priority, such that the target is finished as soon as possible.
 The ``--dry-run`` (equivalently ``--dryrun``) or ``-n`` option allows you to see the scheduling plan including the assigned priorities.
@@ -1098,6 +1416,8 @@ The log file has to use the same wildcards as output files, e.g.
     log: "logs/abc.{dataset}.log"
 
 
+.. note:: Using the ``log`` directive will not automatically redirect the rule's output towards the log file - this you will still need to facilitate yourself! The ``log`` directive merely prevents Snakemake from deleting the log file upon rule failure.
+
 For programs that do not have an explicit ``log`` parameter, you may always use ``2> {log}`` to redirect stderr to a file (here, the ``log`` file) in Linux-based systems.
 Note that it is also possible to have multiple named log files, which could be used to capture stdout and stderr:
 
@@ -1123,17 +1443,13 @@ Sometimes you may want to define certain parameters separately from the rule bod
         input:
             ...
         params:
-            prefix="somedir/{sample}"
+            threshold=0.4
         output:
             "somedir/{sample}.csv"
         shell:
-            "somecommand -o {params.prefix}"
+            "somecommand --threshold {params.threshold} -o {output}"
 
-The ``params`` keyword allows you to specify additional parameters depending on the wildcards values. This allows you to circumvent the need to use ``run:`` and python code for non-standard commands like in the above case.
-Here, the command ``somecommand`` expects the prefix of the output file instead of the actual one. The ``params`` keyword helps here since you cannot simply add the prefix as an output file (as the file won't be created, Snakemake would throw an error after execution of the rule).
-
-Furthermore, for enhanced readability and clarity, the ``params`` section is also an excellent place to name and assign parameters and variables for your subsequent command.
-
+The ``params`` section is an excellent place to name and assign parameters and variables for your subsequent command.
 Similar to ``input``, ``params`` can take functions as well (see :ref:`snakefiles-input_functions`), e.g. you can write
 
 .. code-block:: python
@@ -1142,22 +1458,19 @@ Similar to ``input``, ``params`` can take functions as well (see :ref:`snakefile
         input:
             ...
         params:
-            prefix=lambda wildcards, output: output[0][:-4]
+            threshold=lambda wildcards: config["thresholds"][wildcards.sample]
         output:
             "somedir/{sample}.csv"
         shell:
-            "somecommand -o {params.prefix}"
+            "somecommand --threshold {params.threshold} -o {output}"
 
-.. note::
-
-    When accessing auxiliary source files (i.e. files that are located relative to the current Snakefile, e.g. some additional configuration)
-    it is crucial to not manually build their path but rather rely on Snakemake's special registration for these files, see :ref:`snakefiles-aux_source_files`.
-
-to get the same effect as above. Note that in contrast to the ``input`` directive, the
+Above example mimics a case where one would have to look up the value of some threshold in a config dictionary.
+Note that in contrast to the ``input`` directive, functions passed to the
 ``params`` directive can optionally take more arguments than only ``wildcards``, namely ``input``, ``output``, ``threads``, and ``resources``.
-From the Python perspective, they can be seen as optional keyword arguments without a default value.
 Their order does not matter, apart from the fact that ``wildcards`` has to be the first argument.
-In the example above, this allows you to derive the prefix name from the output file.
+This way, params can be used to dynamically adjust those values into whatever format is needed for your command or script.
+
+The ``params`` directive is particularly powerful in combination with Snakemake's :ref:`semantic helper functions <snakefiles-semantic-helpers>`.
 
 .. _snakefiles-plain-python-rules:
 
@@ -1230,7 +1543,7 @@ Python
 The script path is always relative to the Snakefile containing the directive (in contrast to the input and output file paths, which are relative to the working directory).
 It is recommended to put all scripts into a subfolder ``scripts`` as above.
 Inside the script, you have access to an object ``snakemake`` that provides access to the same objects that are available in the ``run`` and ``shell`` directives (input, output, params, wildcards, log, threads, resources, config), e.g. you can use ``snakemake.input[0]`` to access the first input file of above rule.
-It is also possible to explicitly import the snakemake object in the script like ``from snakemake.script import snakemake`` to enable code completion, linting and type checking your python code in IDEs.
+To enable code completion, linting and type checking your python code in IDEs, we recommend using the typing module's `TYPE_CHECKING <https://docs.python.org/3/library/typing.html#typing.TYPE_CHECKING>`__ variable and the typing stub provided in the ``snakemake.iocontainers`` module (see below for how).
 
 An example external Python script could look like this:
 
@@ -1241,11 +1554,14 @@ An example external Python script could look like this:
 
     do_something(snakemake.input[0], snakemake.output[0], snakemake.threads, snakemake.config["myparam"])
 
-or using the explicit import:
+For type checking, it is possible to import the a correctly typed stub for the snakemake object:
 
 .. code-block:: python
 
-    from snakemake.script import snakemake
+    from typing import TYPE_CHECKING
+
+    if TYPE_CHECKING:
+        from snakemake.iocontainers import snakemake
 
     def do_something(data_path, out_path, threads, myparam):
         # python code
@@ -1253,6 +1569,88 @@ or using the explicit import:
     do_something(snakemake.input[0], snakemake.output[0], snakemake.threads, snakemake.config["myparam"])
 
 You can use the Python debugger from within the script if you invoke Snakemake with ``--debug``.
+
+Xonsh_
+""""""
+
+.. _Xonsh: https://xon.sh
+
+Because Xonsh is a superset of Python, you can use a Xonsh script as you would a Python script, but with all the additional shell primitives that Xonsh provides.
+
+For example, with this rule:
+
+.. code-block:: python
+
+    rule get_variants_in_genes:
+        input:
+            vcf="input.vcf",
+            gene_locations="genes.bed",
+        output:
+            "output.tsv"
+        conda:
+            "envs/variant_calling.yaml"
+        log:
+            "logs/get_variants_in_genes.log"
+        script:
+            "scripts/get_variants_in_genes.xsh"
+
+the Xonsh script might look like this:
+
+.. code-block::
+
+    $XONSH_TRACEBACK_LOGFILE = snakemake.log[0]
+
+    annotations = ", ".join(
+        f'ANN["{field}"]' for field in ["Consequence", "SYMBOL", "Feature", "BIOTYPE"]
+    )
+
+    bcftools view -R @(snakemake.input.gene_locations) @(snakemake.input.vcf) \
+    | vembrane table --output @(snakemake.output[0]) @(f'CHROM, POS, ID, {annotations}')
+
+
+Hy_
+"""
+
+.. _Hy: https://hylang.org/
+
+Hy allows you to interact with Python using a Lisp-like syntax.
+
+For example, with this rule:
+
+.. code-block:: python
+
+    rule get_sum_of_odd_numbers:
+        input:
+            "list_of_numbers.txt"
+        output:
+            results_file="sum_of_odd_numbers.txt"
+        conda:
+            "envs/hy.yaml"
+        script:
+            "scripts/sum_odd_numbers.hy"
+
+the Hy script might look like this:
+
+.. code-block:: hy
+
+    (require hyrule [-> ->>])
+
+    (defn is-odd? [n] (!= (% n 2) 0))
+
+    (setv result
+          (->> (get snakemake.input 0)
+               open
+               .readlines
+               (map int)
+               (filter is-odd?)
+               sum))
+
+    (with [f
+           (-> (get snakemake.output "results_file")
+               (open "w"))]
+      (print result :file f))
+
+
 
 R and R Markdown
 ~~~~~~~~~~~~~~~~
@@ -1508,7 +1906,7 @@ remaining directives can be found in the variable ``snakemake``.
     As arrays cannot be nested in Bash, use of python's ``dict`` in directives is not supported. So, adding a ``params`` key of ``data={"foo": "bar"}`` will not be reflected - ``${snakemake_params[data]}`` actually only returns ``"foo"``.
 
 Bash Example 1
-~~~~~~~~~~~~~~
+""""""""""""""
 
 .. code-block:: python
 
@@ -1551,7 +1949,7 @@ double-quote any variable that could contain a file name. However, `in some case
 such as ``${snakemake_params[opts]}`` in the above example.
 
 Bash Example 2
-~~~~~~~~~~~~~~
+""""""""""""""
 
 .. code-block:: python
 
@@ -1605,6 +2003,7 @@ as ``"${snakemake_input[0]}"`` and ``"${snakemake_input[1]}"``.
 
 For technical reasons, scripts are executed in ``.snakemake/scripts``. The original script directory is available as ``scriptdir`` in the ``snakemake`` object.
 
+
 .. _snakefiles_notebook-integration:
 
 Jupyter notebook integration
@@ -1642,6 +2041,17 @@ This can be achieved by adding a named logfile ``notebook=...`` to the ``log`` d
 .. note::
 
     It is possible to refer to wildcards and params in the notebook path, e.g. by specifying ``"notebook/{params.name}.py"`` or ``"notebook/{wildcards.name}.py"``.
+
+Normally, notebooks are executed headlessly (without a Jupyter interface being presented to you).
+This is achieved with Papermill_ if that is installed in your software environment,
+or `nbconvert`_ otherwise.
+The latter will be installed automatically along with Jupyter, but will not output
+an executed (logfile) notebook until the entire execution is complete, and won't output
+a notebook if execution encounters an error.
+
+.. _Papermill: https://github.com/nteract/papermill
+
+.. _nbconvert: https://nbconvert.readthedocs.io/en/latest/
 
 In order to simplify the coding of notebooks given the automatically inserted ``snakemake`` object, Snakemake provides an interactive edit mode for notebook rules.
 Let us assume you have written above rule, but the notebook does not yet exist.
@@ -1719,6 +2129,8 @@ or the short form
 will generate skeleton code in ``notebooks/hello.py.ipynb`` and additionally print instructions on how to open and execute the notebook in VSCode.
 
 
+.. _snakefiles_protected_temp:
+
 Protected and Temporary Files
 -----------------------------
 
@@ -1750,6 +2162,30 @@ Further, an output file marked as ``temp`` is deleted after all rules that use i
 
 .. _snakefiles-directory_output:
 
+Auto-grouping via temp files upon remote execution
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For performance reasons, it is sometimes useful to write intermediate files on a faster storage, e.g., attached locally on the cluster compute node rather than shared over the network (and thus neither visible to the main snakemake process that submits jobs to the cluster, nor to other nodes of the cluster).
+Snakemake (since version 9.0) allows files marked as ``temp`` to use the option ``group_jobs`` to indicate that rules creating and consuming them should be automatically :ref:`grouped  <job_grouping>` together so Snakemake will schedule them to run on the same physical node:
+
+.. code-block:: python
+
+    rule NAME1:
+        input:
+            "path/to/inputfile"
+        output:
+            temp("path/to/intermediatefile", group_jobs=True)
+        shell:
+            "somecommand {input} {output}"
+
+    rule NAME2:
+        input:
+            "path/to/intermediatefile"
+        output:
+            "path/to/outputfile"
+        shell:
+            "someothercommand {input} {output}"
+
 Directories as outputs
 ----------------------
 
@@ -1773,11 +2209,18 @@ Always consider if you can't formulate your workflow using normal files before r
         shell:
             "somecommand {input} {output}"
 
+.. sidebar:: Caution on Directory Outputs
+
+    Note that because a directory marked as the output of a job will be deleted before that job executes (in order to start with a clean state), other jobs should not create output files within that directory, as these may be inadvertently deleted as well.
+
 Ignoring timestamps
 -------------------
 
 For determining whether output files have to be re-created, Snakemake checks whether the file modification date (i.e. the timestamp) of any input file of the same job is newer than the timestamp of the output file.
-This behavior can be overridden by marking an input file as ``ancient``.
+Please note, however, that for small input files (of by default up to 1 MB, controlled by ``--max-checksum-file-size``),
+Snakemake instead records and compares file checksums and only reruns the rule if the input file checksum has changed,
+even if the timestamp of the input file is newer than the output file(s).
+This overall behavior can be overridden by marking an input file as ``ancient``.
 The timestamp of such files is ignored and always assumed to be older than any of the output files:
 
 .. code-block:: python
@@ -1815,7 +2258,7 @@ Above, the output file ``test.txt`` is marked as non-empty.
 If the command ``somecommand`` happens to generate an empty output,
 the job will fail with an error listing the unexpected empty file.
 
-A sha256 checksum can be compared as follows:
+A sha256 (or md5 or sha1) checksum can be compared as follows (using corresponding keyword arguments ``sha256=``, ``md5=``, or ``sha1=``).:
 
 .. code-block:: python
 
@@ -1875,10 +2318,9 @@ unless you reference parent directories relative to your workdir in a rule.
         shadow: "shallow"
         shell: "somecommand --other_outputs other.txt {input} {output}"
 
-Shadow directories are stored one per rule execution in ``.snakemake/shadow/``,
-and are cleared on successful execution.
-Consider running with the ``--cleanup-shadow`` argument every now and then
-to remove any remaining shadow directories from aborted jobs.
+Shadow directories are stored one per rule execution in ``.snakemake/shadow/``, and are cleared on successful execution.
+For debugging purposes, ``--keep-incomplete`` command line argument can be used to keep the shadow directories of failed jobs.
+Consider running with the ``--cleanup-shadow`` argument every now and then to remove any remaining shadow directories from aborted jobs.
 The base shadow directory can be changed with the ``--shadow-prefix`` command line argument.
 
 .. _snakefiles_retries:
@@ -1994,6 +2436,24 @@ The ``onsuccess`` handler is executed if the workflow finished without error. Ot
 In both handlers, you have access to the variable ``log``, which contains the path to a logfile with the complete Snakemake output.
 Snakemake 3.6.0 adds an ``onstart`` handler, that will be executed before the workflow starts.
 Note that dry-runs do not trigger any of the handlers.
+
+When you are using :ref:`snakefiles-modules`, only the ``onstart``, ``onsuccess`` and ``onerror`` handlers of the top-level Snakefile are executed. Handlers defined inside module Snakefiles are not triggered automatically.
+To access the handlers from a specific module's Snakefile, you can use ``module_name.onstart``, ``module_name.onsuccess`` and ``module_name.onerror``.
+
+.. code-block:: python
+
+    module test1:
+        snakefile:
+            "module1/Snakefile"
+
+    use rule * from test1 as module1_*
+
+    onstart:
+        test1.onstart()
+    onsuccess:
+        test1.onsuccess()
+    onerror:
+        test1.onerror()
 
 
 Rule dependencies
@@ -2295,7 +2755,7 @@ Here, this means that, e.g., the jobs creating ``a/1.out`` and ``b/1.out`` will 
 However, if we would add ``group: "mygroup"`` to rule ``c``, all jobs would end up in a single group, including the one spawned from rule ``c``, because ``c`` connects all the other jobs.
 
 Alternatively, groups can be defined via the command line interface.
-This enables to almost arbitrarily partition the DAG, e.g. in order to safe network traffic, see :ref:`here <job_grouping>`.
+This enables to almost arbitrarily partition the DAG, e.g. in order to save network traffic, see :ref:`here <job_grouping>`.
 
 For execution on the cloud using Google Life Science API and preemptible instances, we expect all rules in the group to be homogeneously set as preemptible instances (e.g., with command-line option ``--preemptible-rules``), such that a preemptible VM is requested for the execution of the group job.
 
@@ -2600,8 +3060,9 @@ Assuming that the checkpoint is named ``somestep`` as above, the output files fo
 
 .. note::
 
-    Note that output files of checkpoints that are accessed via this mechanism should not be marked as temporary.
-    Otherwise, they would require to trigger reruns of the checkpoint whenever the DAG shall be reevaluated (because they are already missing at that point).
+    Note that output files of checkpoints that are accessed via this mechanism will not be marked as temporary.
+    Even you try to mark them as temporary, Snakemake will ignore the label and keep the output files of the checkpoint.
+    Reruns will not be triggered if the output file do not exist.
 
 Thereby, the ``get`` method throws ``snakemake.exceptions.IncompleteCheckpointException`` if the checkpoint has not yet been executed for these particular wildcard value(s).
 Inside an input function, the exception will be automatically handled by Snakemake, and leads to a re-evaluation after the checkpoint has been successfully passed.
@@ -2613,8 +3074,20 @@ To illustrate the possibilities of this mechanism, consider the following comple
   # a target rule to define the desired final output
   rule all:
       input:
-          "aggregated/a.txt",
-          "aggregated/b.txt"
+          "aggregated/sample1.txt",
+          "aggregated/sample2.txt"
+
+
+  # generate per-sample input files; filenames are sample IDs,
+  # while file content ("a" or "b") controls downstream branching
+  rule generate_sample_input:
+      output:
+          "samples/{sample}.txt"
+      run:
+          import random
+
+          with open(output[0], "w") as f:
+              f.write(random.choice(["a", "b"]))
 
 
   # the checkpoint that shall trigger re-evaluation of the DAG
@@ -2624,8 +3097,8 @@ To illustrate the possibilities of this mechanism, consider the following comple
       output:
           "somestep/{sample}.txt"
       shell:
-          # simulate some output value
-          "echo {wildcards.sample} > somestep/{wildcards.sample}.txt"
+          # propagate generated value into checkpoint output
+          "cp {input} {output}"
 
 
   # intermediate rule
@@ -2690,38 +3163,38 @@ Consider the following example where an arbitrary number of files is generated b
 .. code-block:: python
 
   # a target rule to define the desired final output
-    rule all:
-        input:
-            "aggregated.txt"
+  rule all:
+      input:
+          "aggregated.txt"
 
 
-    # the checkpoint that shall trigger re-evaluation of the DAG
-    # an number of file is created in a defined directory
-    checkpoint somestep:
-        output:
-            directory("my_directory/")
-        shell:'''
-        mkdir my_directory/
-        cd my_directory
-        for i in 1 2 3; do touch $i.txt; done
-        '''
+  # the checkpoint that shall trigger re-evaluation of the DAG
+  # an number of file is created in a defined directory
+  checkpoint somestep:
+      output:
+          directory("my_directory/")
+      shell:'''
+      mkdir -p my_directory/
+      cd my_directory
+      for i in 1 2 3; do touch $i.txt; done
+      '''
 
 
 
-    # input function for rule aggregate, return paths to all files produced by the checkpoint 'somestep'
-    def aggregate_input(wildcards):
-        checkpoint_output = checkpoints.somestep.get(**wildcards).output[0]
-        return expand("my_directory/{i}.txt",
-                    i=glob_wildcards(os.path.join(checkpoint_output, "{i}.txt")).i)
+  # input function for rule aggregate, return paths to all files produced by the checkpoint 'somestep'
+  def aggregate_input(wildcards):
+      checkpoint_output = checkpoints.somestep.get(**wildcards).output[0]
+      return expand("my_directory/{i}.txt",
+                  i=glob_wildcards(os.path.join(checkpoint_output, "{i}.txt")).i)
 
 
-    rule aggregate:
-        input:
-            aggregate_input
-        output:
-            "aggregated.txt"
-        shell:
-            "cat {input} > {output}"
+  rule aggregate:
+      input:
+          aggregate_input
+      output:
+          "aggregated.txt"
+      shell:
+          "cat {input} > {output}"
 
 Because the number of output files is unknown beforehand, the checkpoint only defines an output :ref:`directory <snakefiles-directory_output>`.
 This time, instead of explicitly writing
@@ -2740,7 +3213,7 @@ which automatically unpacks the wildcards as keyword arguments (this is standard
 If the checkpoint has not yet been executed, accessing ``checkpoints.somestep.get(**wildcards)`` ensures that Snakemake records the checkpoint as a direct dependency of the rule ``aggregate``.
 Upon completion of the checkpoint, the input function is re-evaluated, and the code beyond its first line is executed.
 Here, we retrieve the values of the wildcard ``i`` based on all files named ``{i}.txt`` in the output directory of the checkpoint.
-Because the wildcard ``i`` is evaluated only after completion of the checkpoint, it is nescessay to use ``directory`` to declare its output, instead of using the full wildcard patterns as output.
+Because the wildcard ``i`` is evaluated only after completion of the checkpoint, it is necessary to use ``directory`` to declare its output, instead of using the full wildcard patterns as output.
 
 A more practical example building on the previous one is a clustering process with an unknown number of clusters for different samples, where each cluster shall be saved into a separate file.
 In this example the clusters are being processed by an intermediate rule before being aggregated:
@@ -2821,8 +3294,47 @@ Consider the following example:
 
 As can be seen, we first declare a rule a, and then we reuse the rule a as rule b, while changing only the output file and keeping everything else the same.
 In reality, one will often change more.
-Analogously to the ``use rule`` from external modules, any properties of the rule (``input``, ``output``, ``log``, ``params``, ``benchmark``, ``threads``, ``resources``, etc.) can be modified, except the actual execution step (``shell``, ``notebook``, ``script``, ``cwl``, or ``run``).
+Analogously to the ``use rule`` from external modules, any properties of the rule (``input``, ``output``, ``log``, ``params``, ``benchmark``, ``threads``, ``resources``, ``pathvars``, etc.) can be modified, except the actual execution step (``shell``, ``notebook``, ``script``, ``cwl``, or ``run``).
 All unmodified properties are inherited from the parent rule.
+
+:ref:`Pathvars <snakefiles-pathvars>` become particularly powerful in combination with such rule inheritance, as they allow to introduce generic items in the parent rule that can be specified out in the child rule:
+
+.. code-block:: python
+
+    rule transform_something:
+        input:
+            "<results>/<instep>/<per>.txt"
+        output:
+            "<results>/<outstep>/<per>.txt"
+        shell:
+            "somecommand {input} > {output}"
+
+    use rule transform_something as something1_to_something2 with:
+        pathvars:
+            instep="something1",
+            outstep="something2",
+            per="{sample}"
+
+    use rule transform_something_else as something5_to_something6 with:
+        pathvars:
+            instep="something5",
+            outstep="something6",
+            per="{sample}.{replicate}"
+
+In other words, here we define a potentially complex rule only once, and explicitly use it in two different parts of the workflow, even with different kinds of wildcards, all by just configuring the pathvars.
+
+
+.. important::
+    A rule cannot be redefined without renaming it using the ``as`` clause.
+    Otherwise, you will have two versions of the same rule, which might be unintended (a common symptom of such unintended repeated uses would be ambiguous rule exceptions thrown by Snakemake).
+    However, it is allowed to create **multiple modified versions** of the same rule, as long as each has a **unique name**.
+    The only exception is when a rule was previously imported via a general ``use rule * from`` statement, such rules may be **further modified once** under the same final name for convenience (see :ref:`snakefiles-modules`).
+
+.. note::
+    Modification of `params` allows the replacement of single keyword arguments.
+    Keyword `params` arguments of the original rule that are not defined after `with` are inherited.
+    Positional `params` arguments of the original rule are overwritten, if positional `params` arguments are given after `with`.
+    All other properties (``input``, ``output``, ...) are entirely overwritten with the values specified after `with`.
 
 .. _snakefiles-aux_source_files:
 
@@ -2838,16 +3350,17 @@ This can be achieved by accessing their path via the ``workflow.source_path``, w
 .. code-block:: python
 
     rule a:
+        input:
+            json=workflow.source_path("../resources/test.json")
         output:
             "test.out"
-        params:
-            json=workflow.source_path("../resources/test.json")
         shell:
-            "somecommand {params.json} > {output}"
+            "somecommand {input.json} > {output}"
 
-Note that if such source paths are specified as input files, they are automatically considered to be non-storage files.
-This means that Snakemake will not try to map them to an eventually specified default storage provider (see :ref:`storage-support`).
-
+.. note::
+    Note that if such source paths are specified as input files, they are automatically considered to be non-storage files.
+    This means that Snakemake will not try to map them to an eventually specified default storage provider (see :ref:`storage-support`).
+    Further, note that ``workflow.source_path`` should not be used from ``params:`` but only from ``input:``. The reason is that it returns a cached path that may change between Snakemake runs, thereby triggering spurious reruns if referred via ``params:`` (since Snakemake would think that the parameter has changed.
 
 .. _snakefiles-template-integration:
 
@@ -2953,31 +3466,46 @@ To avoid such leaks (only required if your template does something like that wit
         shell:
             "sometool {input} {output}"
 
+.. _snakefiles_default_flags:
+
+Setting default flags
+---------------------
+
+Snakemake allows the annotation of input and output files via so-called flags (see e.g. :ref:`snakefiles_protected_temp`).
+Sometimes, it can be useful to define that a certain flag shall be applied to all input or output files of a workflow.
+This can be achieved via the global ``inputflags`` and ``outputflags`` directives.
+Consider the following example:
+
+.. code-block:: python
+
+    outputflags:
+        temp
+
+    rule a:
+        output:
+            "test.out"
+        shell:
+            "echo test > {output}"
+
+Would automatically mark the output file of rule ``a`` as temporary.
+The most convenient use case of this mechanism occurs in combination with :ref:`access pattern annotation <storage-access-patterns>`.
+In this case, the default access pattern can be set globally for all output files of a workflow.
+Only a few cases that differ have then to deal with explicit access pattern annotation (see :ref:`storage-access-patterns` for an example).
+Whenever a rule defines a flag for a file, this flag will override the default flag of the same kind or any contradicting default flags (e.g. ``temp`` will override ``protected``).
+
+Such default input and output flag specifications are always valid for all rules that follow them in the workflow definition.
+Importantly, they are also "namespaced" per module, meaning that ``inputflags`` and ``outputflags`` directives in a module only apply to the rules defined in that module.
+
+
 .. _snakefiles_mpi_support:
 
 MPI support
 -----------
 
-Highly parallel programs may use the MPI (:ref: [message passing interface](https://en.wikipedia.org/wiki/Message_Passing_Interface)) to enable a program to span work across an individual compute node's boundary.
-To actually use an HPC cluster with Snakemake, an [executor plugin is provided for the SLURM batch system](https://github.com/snakemake/snakemake-executor-plugin-slurm). You can find its documentation [here](https://github.com/snakemake/snakemake-executor-plugin-slurm/blob/main/docs/further.md).
-Users of different batch systems are encouraged to [provide further plugins](https://snakemake.github.io/snakemake-plugin-catalog/#contributing) and/or share their Snakemake configuration via the [Snakemake profiles project](https://github.com/Snakemake-Profiles) project.
-
-The command to run the MPI program (in below example we assume there exists a program ``calc-pi-mpi``) has to be specified in the ``mpi``-resource, e.g.:
-
-.. code-block:: python
-
-  rule calc_pi:
-    output:
-        "pi.calc",
-    log:
-        "logs/calc_pi.log",
-    resources:
-        tasks=10,
-        mpi="mpiexec",
-    shell:
-        "{resources.mpi} -n {resources.tasks} calc-pi-mpi 10 > {output} 2> {log}"
-
-Thereby, additional parameters may be passed to the MPI-starter, e.g.:
+Some highly parallel programs or scripts implement the `message passing interface (MPI)) <https://en.wikipedia.org/wiki/Message_Passing_Interface>`_, which enables a program to span work across multiple compute nodes on a compute cluster (where a node is an individual machine, which will usually have multiple CPUs nowadays).
+Let us assume, we have such a program that can parallelize using the MPI and its name is ``calc-pi-mpi``.
+To run such a program, the user will usually launch it via the `mpirun <https://docs.open-mpi.org/en/v5.0.x/launching-apps/quickstart.html>`_ command from Open MPI.
+But because it can make sense to use another MPI launch command in some circumstances, we recommend the following pattern for a snakemake rule using an MPI-parallelized tool:
 
 .. code-block:: python
 
@@ -2988,18 +3516,36 @@ Thereby, additional parameters may be passed to the MPI-starter, e.g.:
         "logs/calc_pi.log",
     resources:
         tasks=10,
-        mpi="mpiexec -arch x86",
+        mpi="mpirun",
     shell:
         "{resources.mpi} -n {resources.tasks} calc-pi-mpi 10 > {output} 2> {log}"
 
-As any other resource, the `mpi`-resource can be overwritten via the command line e.g. in order to adapt to a specific platform (see :ref:`snakefiles-resources`). For instance,
-users of the SLURM executor plugin can use `srun` as the MPI-starter:
+Here, you provide the MPI wrapper command used to launch the program under ``resources: mpi=``.
+This enables users to override this command if their execution environment requires this, via providing the ``mpi`` resource in :ref:`executing-profiles` or via the command line option |set-resources|_.
+While ``mpirun`` `should work in most compute environments, including cluster systems like Slurm, LSF or PBS <https://docs.open-mpi.org/en/v5.0.x/launching-apps/quickstart.html>`_, the exact MPI wrapper command to launch programs may differ on your system.
+To find out if and which command your execution environment provides, you will have to consult local documentation, check out if any known mpi wrapper commands are available or ask your system's administrators.
+A good reference point for getting mpirun to work on your execution environment is the `documentation of the mpirun prerequisites <https://docs.open-mpi.org/en/v5.0.x/launching-apps/prerequisites.html>`_.
+
+.. |set-resources| replace:: ``--set-resources``
+.. _set-resources: https://snakemake.readthedocs.io/en/stable/executing/cli.html#snakemake.cli-get_argument_parser-execution
+
+While a number of cluster scheduling systems are able to figure the ``tasks`` resource out for you, other execution environments will require setting ``-n`` manually.
+This includes running a snakemake workflow with an MPI program `on a single host <https://docs.open-mpi.org/en/v5.0.x/launching-apps/quickstart.html#launching-on-a-single-host>`_ or `in a non-scheduled environment via ssh <https://docs.open-mpi.org/en/v5.0.x/launching-apps/quickstart.html#launching-in-a-non-scheduled-environments-via-ssh>`_, but will also include snakemake remote execution plugins for cluster systems that don't integrate handling this for you.
+It is thus good practice to provide this explicitly.
+To understand how a remote execution plugin for a particular cluster scheduling system supports MPI job execution, please consult the `documentation for the respective plugin <https://snakemake.github.io/snakemake-plugin-catalog/>`_.
+
+In addition to overriding the MPI wrapper command, you can also provide extra parameters to the MPI wrapper command with the above construct, should your execution environment require it, for example:
+
+.. code-block:: console
+
+  $ snakemake --set-resources calc_pi:mpi="mpirun -arch x86" ...
+
+or:
 
 .. code-block:: console
 
   $ snakemake --set-resources calc_pi:mpi="srun --hint nomultithread" ...
 
-Note that in case of distributed, remote execution (cluster, cloud), MPI support might not be available.
 
 .. _snakefiles_continuous_input:
 
@@ -3089,7 +3635,8 @@ Consider the following example:
 
 Here, the statement ``test`` is appended to the output file ``test.txt``.
 Hence, we declare it as being updated via the ``update`` flag.
-This way, Snakemake will not delete the file before the job is executed.
+This way, Snakemake will not delete the file or directory before the job is executed.
+Furthermore, Snakemake will restore the previous version of the file/directory if the job fails.
 
 If such a file/directory has to be considered as input **before the update** for another rule
 it can be marked as ``before_update``.
@@ -3127,7 +3674,7 @@ The name is optional and can be left out, creating an anonymous rule. It can als
 
     for tool in ["bcftools", "freebayes"]:
         rule:
-            name: 
+            name:
                 f"call_variants_{tool}"
             input:
                 f"path/to/{tool}/inputfile"

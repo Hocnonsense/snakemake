@@ -1,3 +1,0 @@
-rule:
-    shell:
-        "python -m snakemake --cores 3 --profile . -s Snakefile.internal"

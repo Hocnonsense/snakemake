@@ -13,16 +13,15 @@
 # All configuration values have a default; values that are commented out
 # serve to show the default.
 
-import sys
 import os
 from datetime import datetime
 from sphinxawesome_theme.postprocess import Icons
-
+from docutils import nodes
 
 # If extensions (or modules to document with autodoc) are in another directory,
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
-sys.path.insert(0, os.path.abspath("../"))
+# sys.path.insert(0, os.path.abspath("../src/"))
 
 # -- General configuration ------------------------------------------------
 
@@ -38,8 +37,15 @@ extensions = [
     "sphinx.ext.napoleon",
     "sphinxarg.ext",
     "sphinx.ext.autosectionlabel",
+    "sphinx_design",
     "myst_parser",
+    "sphinx_reredirects",
 ]
+
+# Redirect handling
+
+redirects = {}
+
 
 html_css_files = ["custom.css"]
 
@@ -116,7 +122,7 @@ suppress_warnings = ["autosectionlabel.*"]
 # show_authors = False
 
 # The name of the Pygments (syntax highlighting) style to use.
-pygments_style = "sphinx"
+# pygments_style = "sphinx"
 
 # A list of ignored prefixes for module index sorting.
 # modindex_common_prefix = []
@@ -142,7 +148,7 @@ html_theme_options = {
     },
     "awesome_external_links": True,
     "awesome_headerlinks": True,
-    "show_prev_next": False,
+    "show_prev_next": True,
 }
 html_permalinks_icon = Icons.permalinks_icon
 
@@ -163,12 +169,13 @@ html_permalinks_icon = Icons.permalinks_icon
 # The name of an image file (within the static path) to use as favicon of the
 # docs.  This file should be a Windows icon file (.ico) being 16x16 or 32x32
 # pixels large.
-# html_favicon = None
+html_favicon = "logo-snake.svg"
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ["_static"]
+html_js_files = ["gurubase-widget.js"]  # gurubase AI widget
 
 # Add any extra paths that contain custom files (such as robots.txt or
 # .htaccess) here, relative to this directory. These files are copied
@@ -184,7 +191,7 @@ html_static_path = ["_static"]
 # html_use_smartypants = True
 
 # Custom sidebar templates, maps document names to template names.
-# html_sidebars = {}
+# html_sidebars = {"**": ["ethicalads.html"]}
 
 # Additional templates that should be rendered to pages, maps page names to
 # template names.
@@ -299,5 +306,22 @@ html_static_path = ["_static"]
 # texinfo_no_detailmenu = False
 
 
+def anchor_role(name, rawtext, text, lineno, inliner, options={}, content=[]):
+    """A role to insert a hidden HTML anchor (ID) for redirects."""
+    # This creates a raw HTML node
+    html = f'<span class="customanchor" id="{text}"></span>'
+    node = nodes.raw("", html, format="html")
+    return [node], []
+
+
+def oldheading_role(name, rawtext, text, lineno, inliner, options={}, content=[]):
+    anchor_id = text.lower().replace(" ", "-").replace(":", "-")
+    return anchor_role(
+        name, rawtext, anchor_id, lineno, inliner, options=options, content=content
+    )
+
+
 def setup(app):
     app.add_css_file("sphinx-argparse.css")
+    app.add_role("oldanchor", anchor_role)
+    app.add_role("oldheading", oldheading_role)

@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 import sys
 
@@ -10,11 +9,10 @@ from setuptools import setup
 
 source_dir = Path(__file__).parent
 sys.path.append(str(source_dir))
-import versioneer  # noqa: E402
 
 # import Assets, while avoiding that the rest of snakemake is imported here before
 # setup has been called.
-sys.path.append(str(source_dir / "snakemake"))
+sys.path.append(str(source_dir / "src" / "snakemake"))
 from assets import Assets
 
 # download online assets
@@ -22,14 +20,13 @@ Assets.deploy()
 
 setup(
     name="snakemake",
-    version=versioneer.get_version(),
-    cmdclass=versioneer.get_cmdclass(),
     package_data={
         "snakemake": [
             "assets/data/**/*",
             "report/html_reporter/template/**/*",
             "report/html_reporter/template/*",
             "common/tests/testcases/**/*",
+            "unit_tests/templates/*",
         ]
     },
 )
